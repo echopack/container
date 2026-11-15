@@ -1,0 +1,17 @@
+namespace container;
+
+/**
+ * One binding under construction on an asking container: which type, and
+ * how long what it builds lives.
+ */
+internal struct Frame
+{
+    internal type_id $id;
+    internal Life $life;
+
+    internal constructor(type_id $id, Life $life)
+    {
+        $this->id = $id;
+        $this->life = $life;
+    }
+}

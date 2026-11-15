@@ -1,0 +1,46 @@
+/**
+ * has and find.
+ */
+
+use container::{Builder, Container};
+
+class FindNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+class FindOther
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+test has_and_find
+{
+    Builder $b = Builder();
+    $b->bind<FindNote>(put: 7);
+    assert($b->has<FindNote>(), 'builder has');
+    assert(!$b->has<FindOther>(), 'builder no other');
+
+    Container $c = $b->seal();
+    assert($c->has<FindNote>(), 'has');
+    assert(!$c->has<FindOther>(), 'no other');
+
+    FindOther? $missing = $c->find<FindOther>();
+    assert($missing == null, 'find miss');
+
+    FindNote? $maybe = $c->find<FindNote>();
+    FindNote $found = guard $maybe else {
+        die('should be there');
+    };
+    assert($found->n == 7, 'find hit');
+}

@@ -1,0 +1,73 @@
+/**
+ * seal refuses further registration.
+ */
+
+use container::{Builder, Container, Entry};
+
+class SealNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+struct SealMeta
+{
+    public int32 $n;
+}
+
+test seal_still_gets
+{
+    Builder $b = Builder();
+    $b->bind<SealNote>(put: 1);
+    Container $c = $b->seal();
+    assert($c->get<SealNote>()->n == 1, 'get');
+}
+
+test child_can_put_after_parent_seal
+{
+    Builder $b = Builder();
+    $b->bind<SealNote>(put: 1);
+    Container $root = $b->seal();
+    Container $child = $root->child();
+    $child->put<string>('ok');
+    assert($child->get<string>() == 'ok', 'child put');
+}
+
+test seal_warm_label_constructs
+{
+    Builder $b = Builder();
+    $b->bind<SealNote>(once: function() : SealNote {
+        return SealNote(4);
+    });
+    Container $c = $b->seal(warm: true);
+    assert($c->get<SealNote>()->n == 4, 'warmed');
+}
+
+#[tests: expects death]
+test bind_after_seal_dies
+{
+    Builder $b = Builder();
+    $b->seal();
+    $b->bind<SealNote>(put: 1);
+}
+
+#[tests: expects death]
+test meta_after_seal_dies
+{
+    Builder $b = Builder();
+    Entry<SealNote> $entry = $b->bind<SealNote>(put: 1);
+    $b->seal();
+    $entry->meta<SealMeta>(1);
+}
+
+#[tests: expects death]
+test second_seal_dies
+{
+    Builder $b = Builder();
+    $b->seal();
+    $b->seal();
+}

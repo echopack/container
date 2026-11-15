@@ -1,0 +1,36 @@
+/**
+ * A second bind of the same type, and a missing get.
+ */
+
+use container::{Builder, Container};
+
+class DupNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+#[tests: expects death]
+test duplicate_bind_dies
+{
+    Builder $b = Builder();
+    $b->bind<DupNote>(once: function() : DupNote {
+        return DupNote(1);
+    });
+    $b->bind<DupNote>(once: function() : DupNote {
+        return DupNote(2);
+    });
+}
+
+#[tests: expects death]
+test missing_get_dies
+{
+    Builder $b = Builder();
+    Container $c = $b->seal();
+    DupNote $n = $c->get<DupNote>();
+    echo $n->n;
+}

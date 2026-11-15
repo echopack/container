@@ -1,0 +1,69 @@
+/**
+ * replace overwrites a binding.
+ */
+
+use container::{Builder, Container, Entry, Record};
+
+interface ReplaceFace
+{
+    const function stamp() : int32;
+}
+
+class ReplaceClock : ReplaceFace
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+
+    public const function stamp() : int32
+    {
+        return $this->n;
+    }
+}
+
+struct ReplaceMeta
+{
+    public string $tag;
+}
+
+test replace_put
+{
+    Builder $b = Builder();
+    $b->bind<ReplaceClock>(once: function() : ReplaceClock {
+        return ReplaceClock(1);
+    });
+    $b->replace<ReplaceClock>(put: 99);
+    Container $c = $b->seal();
+    assert($c->get<ReplaceClock>()->n == 99, 'replaced');
+}
+
+test replace_keeps_meta_and_views
+{
+    Builder $b = Builder();
+    Entry<ReplaceClock> $entry = $b->bind<ReplaceClock>(once: function() : ReplaceClock {
+        return ReplaceClock(1);
+    })
+        ->meta<ReplaceMeta>('keep')
+        ->view<ReplaceFace>();
+
+    $b->replace<ReplaceClock>(put: 99);
+    Container $c = $b->seal();
+
+    array<Record> $rows = $c->with<ReplaceMeta>();
+    assert($rows->count() == 1, 'still listed');
+    assert($rows[0]->meta<ReplaceMeta>()->tag == 'keep', 'meta');
+    assert($rows[0]->fetch<ReplaceClock>()->n == 99, 'native');
+    assert($rows[0]->fetch<ReplaceFace>()->stamp() == 99, 'view');
+    assert($entry->meta<ReplaceMeta>()->tag == 'keep', 'entry');
+    assert($entry->has<ReplaceMeta>(), 'entry has');
+}
+
+#[tests: expects death]
+test replace_without_prior_bind_dies
+{
+    Builder $b = Builder();
+    $b->replace<ReplaceClock>(put: 3);
+}

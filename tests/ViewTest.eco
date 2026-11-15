@@ -1,0 +1,65 @@
+/**
+ * view<I> then fetch<I> on discovered rows.
+ */
+
+use container::{Builder, Container, Record};
+
+interface AsHandler
+{
+    const function id() : int32;
+}
+
+struct AsRoute
+{
+    public string $path;
+}
+
+class AsUsers : AsHandler
+{
+    public const function id() : int32
+    {
+        return 1;
+    }
+}
+
+class AsPosts : AsHandler
+{
+    public const function id() : int32
+    {
+        return 2;
+    }
+}
+
+test view_then_fetch_two_actions
+{
+    Builder $b = Builder();
+    $b->bind<AsUsers>(once: function() : AsUsers {
+        return AsUsers();
+    })
+        ->meta<AsRoute>('/users')
+        ->view<AsHandler>();
+    $b->bind<AsPosts>(once: function() : AsPosts {
+        return AsPosts();
+    })
+        ->meta<AsRoute>('/posts')
+        ->view<AsHandler>();
+    Container $c = $b->seal();
+
+    array<Record> $rows = $c->with<AsRoute>();
+    assert($rows->count() == 2, 'two');
+    assert($rows[0]->fetch<AsHandler>()->id() == 1, 'users');
+    assert($rows[1]->fetch<AsHandler>()->id() == 2, 'posts');
+    assert($rows[0]->fetch<AsUsers>()->id() == 1, 'native');
+}
+
+#[tests: expects death]
+test fetch_without_view_dies
+{
+    Builder $b = Builder();
+    $b->bind<AsUsers>(once: function() : AsUsers {
+        return AsUsers();
+    })->meta<AsRoute>('/users');
+    Container $c = $b->seal();
+    array<Record> $rows = $c->with<AsRoute>();
+    $rows[0]->fetch<AsHandler>();
+}

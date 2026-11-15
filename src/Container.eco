@@ -1,0 +1,301 @@
+namespace container;
+
+/**
+ * A sealed type-keyed service graph.
+ *
+ * Bind on a `Builder`. Resolve here. Types in the middle take constructors and never mention
+ * this class.
+ *
+ * The key is `type_id<T>()`. `get<Logger>()` returns a `Logger`. Factories are explicit;
+ * constructor injection happens inside them.
+ */
+#[atomic]
+public class Container
+{
+    private Core $core;
+    private Container? $parent;
+    private ordered_map<type_id, erased> $overlay;
+    private ordered_map<type_id, erased> $scoped;
+    private array<Frame> $stack;
+    private array<type_id> $born;
+
+    /**
+     * The root graph of a sealed builder.
+     */
+    internal constructor(Core $core)
+    {
+        $this->core = $core;
+        $this->parent = null;
+        $this->overlay = ordered_map<type_id, erased>();
+        $this->scoped = ordered_map<type_id, erased>();
+        $this->stack = array<Frame>();
+        $this->born = array<type_id>();
+    }
+
+    /**
+     * A child that overlays `put` values and caches `scope` on this ask. Lookups that miss
+     * walk parent overlays, then the sealed catalog.
+     */
+    internal constructor(parent: Container $parent)
+    {
+        $this->core = $parent->core;
+        $this->parent = $parent;
+        $this->overlay = ordered_map<type_id, erased>();
+        $this->scoped = ordered_map<type_id, erased>();
+        $this->stack = array<Frame>();
+        $this->born = array<type_id>();
+    }
+
+    /**
+     * The service of type `T`. Missing or a cycle stops the program.
+     */
+    public function get<T>() : T
+    {
+        T $over = guard $this->overlayOf<T>() else {
+            type_id $id = type_id<T>();
+            if (!$this->core->has($id)) {
+                string $name = $this->core->nameOf($id);
+                die(Trace::describe($this->chain(), "nothing binds {$name}"));
+            }
+
+            Cell $cell = $this->core->get($id);
+            return $cell->read<T>($this);
+        };
+
+        return $over;
+    }
+
+    /**
+     * The service of type `T`, or `null` when nothing is bound.
+     */
+    public function find<T>() : T?
+    {
+        if (!$this->has<T>()) {
+            return null;
+        }
+
+        return $this->get<T>();
+    }
+
+    /**
+     * Whether `T` is overlaid here or on a parent, or bound in the catalog.
+     */
+    public const function has<T>() : bool
+    {
+        if ($this->hasOverlay(type_id<T>())) {
+            return true;
+        }
+
+        return $this->core->has(type_id<T>());
+    }
+
+    /**
+     * Every catalog row that has metadata of type `M`, in bind order.
+     */
+    public function with<M>() : array<Record>
+    {
+        array<Record> $out = array<Record>();
+        array<Cell> $rows = $this->core->values();
+        foreach ($rows as const &$cell) {
+            if ($cell->hasMeta<M>()) {
+                $out[] = Record($this, $cell);
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * A nested container. Lookups that miss here walk parent overlays, then the catalog.
+     */
+    public function child() : Container
+    {
+        return Container(parent: $this);
+    }
+
+    /**
+     * Overlay `$value` as `T` on this ask. Shadows the catalog for `get` / `fetch`; does not
+     * add a catalog row. Constructor args of `T` are gathered at the call:
+     * `put<Request>($request)` or `put<ChildRequest>('/home')`.
+     */
+    public function put<T>(construct T $value) : void
+    {
+        type_id $id = type_id<T>();
+        $this->overlay[$id] = erased::from(Box<T>($value));
+        $this->born[] = $id;
+    }
+
+    /**
+     * Resolve every `once` binding in the catalog, so later `get` does not construct.
+     * Dies on a child.
+     */
+    public function warm() : void
+    {
+        if ($this->parent != null) {
+            die('container: warm child');
+        }
+
+        array<Cell> $rows = $this->core->values();
+        foreach ($rows as $cell) {
+            $cell->warm($this);
+        }
+    }
+
+    /**
+     * Build every binding once on this ask, the way `get` would: a missing
+     * binding, a cycle or a `once` binding that takes a `scope` one stops
+     * the program here instead of on some later `get`. Call it on a child
+     * and drop that child afterwards, so nothing it built per ask stays.
+     */
+    public function probe() : void
+    {
+        array<Cell> $rows = $this->core->values();
+        foreach ($rows as $cell) {
+            $cell->probe($this);
+        }
+    }
+
+    /**
+     * Release this ask's overlays and scoped instances in reverse construction order. On the
+     * root, also release every `once` cache.
+     */
+    public function drop() : void
+    {
+        array<type_id> $ids = $this->born;
+        int32 $n = $ids->count();
+        for ($i = $n - 1; $i >= 0; $i--) {
+            type_id $id = $ids[$i];
+            if ($this->overlay->has($id)) {
+                $this->overlay->remove($id);
+            }
+            if ($this->scoped->has($id)) {
+                $this->scoped->remove($id);
+            }
+        }
+        $this->born->clear();
+        $this->stack->clear();
+
+        if ($this->parent == null) {
+            $this->core->dropOnce();
+        }
+    }
+
+    /**
+     * The scoped value of type `T` on this ask, or `null`.
+     */
+    internal function recall<T>() : T?
+    {
+        type_id $id = type_id<T>();
+        if (!$this->scoped->has($id)) {
+            return null;
+        }
+
+        return $this->unbox<T>($this->scoped->get($id));
+    }
+
+    /**
+     * Cache `$value` as the scoped instance of `T` on this ask.
+     */
+    internal function remember<T>(T $value) : void
+    {
+        type_id $id = type_id<T>();
+        $this->scoped[$id] = erased::from(Box<T>($value));
+        $this->born[] = $id;
+    }
+
+    /**
+     * Mark `$id` as under construction on this ask. A second enter is a cycle.
+     */
+    internal function entering(type_id $id, Life $life) : void
+    {
+        foreach ($this->stack as const &$f) {
+            if ($f->id == $id) {
+                array<string> $chain = $this->chain();
+                $chain[] = $this->core->nameOf($id);
+                die(Trace::describe($chain, 'a cycle'));
+            }
+        }
+
+        $this->stack[] = Frame($id, $life);
+    }
+
+    /**
+     * Mark `$id` as no longer under construction on this ask.
+     */
+    internal function leaving(type_id $id) : void
+    {
+        $this->stack->pop();
+    }
+
+    /**
+     * About to hand out the `scope` binding `$id`: a `once` binding under
+     * construction would keep it past this ask.
+     */
+    internal function scoping(type_id $id) : void
+    {
+        foreach ($this->stack as const &$f) {
+            if ($f->life == Life::once) {
+                string $once = $this->core->nameOf($f->id);
+                string $scoped = $this->core->nameOf($id);
+                array<string> $chain = $this->chain();
+                $chain[] = $scoped;
+                die(Trace::describe($chain, "{$once} is a once binding, so it would keep the scope binding {$scoped}"));
+            }
+        }
+    }
+
+    /**
+     * The names of the bindings under construction on this ask, outermost
+     * first.
+     */
+    internal const function chain() : array<string>
+    {
+        array<string> $out = [];
+        foreach ($this->stack as const &$f) {
+            $out[] = $this->core->nameOf($f->id);
+        }
+        return $out;
+    }
+
+    /**
+     * Remember a `once` construction on the shared core, for reverse `drop`.
+     */
+    internal function noteOnce(type_id $id) : void
+    {
+        $this->core->noteOnce($this->core->get($id));
+    }
+
+    private function overlayOf<T>() : T?
+    {
+        type_id $id = type_id<T>();
+        if ($this->overlay->has($id)) {
+            return $this->unbox<T>($this->overlay->get($id));
+        }
+
+        Container $parent = guard $this->parent else {
+            return null;
+        };
+
+        return $parent->overlayOf<T>();
+    }
+
+    private const function hasOverlay(type_id $id) : bool
+    {
+        if ($this->overlay->has($id)) {
+            return true;
+        }
+
+        Container $parent = guard $this->parent else {
+            return false;
+        };
+
+        return $parent->hasOverlay($id);
+    }
+
+    private function unbox<T>(erased $held) : T
+    {
+        unsafe {
+            Box<T> $box = assume<Box<T>>($held);
+            return $box->value;
+        }
+    }
+}

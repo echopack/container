@@ -1,0 +1,102 @@
+/**
+ * with<M> discovers rows that carry metadata M.
+ */
+
+use container::{Builder, Container, Record};
+
+enum WithMethod
+{
+    case get;
+    case post;
+}
+
+struct WithRoute
+{
+    public WithMethod $method;
+    public string $path;
+}
+
+class WithUsers
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+class WithPosts
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+class WithOther
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+struct WithTag
+{
+    public int32 $n;
+}
+
+test with_lists_matching_rows
+{
+    Builder $b = Builder();
+    $b->bind<WithUsers>(once: function() : WithUsers {
+        return WithUsers(1);
+    })->meta<WithRoute>($method: .get, $path: '/users');
+    $b->bind<WithPosts>(once: function() : WithPosts {
+        return WithPosts(2);
+    })->meta<WithRoute>($method: .post, $path: '/posts');
+    $b->bind<WithOther>(once: function() : WithOther {
+        return WithOther(3);
+    });
+    Container $c = $b->seal();
+
+    array<Record> $rows = $c->with<WithRoute>();
+    assert($rows->count() == 2, 'two routes');
+    assert($rows[0]->meta<WithRoute>()->path == '/users', 'first');
+    assert($rows[1]->meta<WithRoute>()->path == '/posts', 'second');
+}
+
+test child_put_keeps_catalog_row
+{
+    Builder $b = Builder();
+    $b->bind<WithUsers>(once: function() : WithUsers {
+        return WithUsers(1);
+    })->meta<WithRoute>($method: .get, $path: '/root');
+    $b->bind<WithOther>(once: function() : WithOther {
+        return WithOther(3);
+    })->meta<WithRoute>($method: .get, $path: '/other');
+    Container $root = $b->seal();
+
+    Container $child = $root->child();
+    $child->put<WithUsers>(9);
+
+    array<Record> $rows = $child->with<WithRoute>();
+    assert($rows->count() == 2, 'catalog frozen');
+    assert($rows[0]->meta<WithRoute>()->path == '/root', 'parent meta');
+    assert($rows[0]->fetch<WithUsers>()->n == 9, 'overlay value');
+    assert($rows[1]->meta<WithRoute>()->path == '/other', 'other');
+    assert($root->get<WithUsers>()->n == 1, 'root unchanged');
+}
+
+test with_empty
+{
+    Builder $b = Builder();
+    Container $c = $b->seal();
+    array<Record> $rows = $c->with<WithTag>();
+    assert($rows->count() == 0, 'none');
+}

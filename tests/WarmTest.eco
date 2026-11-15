@@ -1,0 +1,94 @@
+/**
+ * warm constructs once bindings.
+ */
+
+use container::{Builder, Container};
+
+class WarmCalls
+{
+    public int32 $n;
+
+    public constructor()
+    {
+        $this->n = 0;
+    }
+}
+
+class WarmNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+test warm_runs_once_factories
+{
+    Builder $b = Builder();
+    WarmCalls $calls = WarmCalls();
+    $b->bind<WarmNote>(once: function() : WarmNote {
+        $calls->n = $calls->n + 1;
+        return WarmNote($calls->n);
+    });
+    Container $c = $b->seal();
+    $c->warm();
+    assert($calls->n == 1, 'warmed');
+    WarmNote $got = $c->get<WarmNote>();
+    assert($got->n == 1, 'cached');
+    assert($calls->n == 1, 'not again');
+}
+
+test warm_skips_each
+{
+    Builder $b = Builder();
+    WarmCalls $calls = WarmCalls();
+    $b->bind<WarmNote>(each: function() : WarmNote {
+        $calls->n = $calls->n + 1;
+        return WarmNote($calls->n);
+    });
+    Container $c = $b->seal();
+    $c->warm();
+    assert($calls->n == 0, 'each is lazy');
+}
+
+test warm_skips_scope
+{
+    Builder $b = Builder();
+    WarmCalls $calls = WarmCalls();
+    $b->bind<WarmNote>(scope: function() : WarmNote {
+        $calls->n = $calls->n + 1;
+        return WarmNote($calls->n);
+    });
+    Container $c = $b->seal();
+    $c->warm();
+    assert($calls->n == 0, 'scope is lazy');
+}
+
+test warm_after_replace_each_skips
+{
+    Builder $b = Builder();
+    WarmCalls $calls = WarmCalls();
+    $b->bind<WarmNote>(once: function() : WarmNote {
+        $calls->n = $calls->n + 1;
+        return WarmNote($calls->n);
+    });
+    $b->replace<WarmNote>(each: function() : WarmNote {
+        $calls->n = $calls->n + 1;
+        return WarmNote($calls->n);
+    });
+    Container $c = $b->seal();
+    $c->warm();
+    assert($calls->n == 0, 'replaced each is lazy');
+}
+
+#[tests: expects death]
+test warm_on_child_dies
+{
+    Builder $b = Builder();
+    $b->bind<WarmNote>(put: 1);
+    Container $root = $b->seal();
+    Container $child = $root->child();
+    $child->warm();
+}

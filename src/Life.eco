@@ -1,0 +1,14 @@
+namespace container;
+
+/**
+ * How often a factory runs.
+ *
+ * `once` is the first resolve, then the cached value on the slot. `each` is every resolve.
+ * `scope` is the first resolve on the asking container, then that container's cached value.
+ */
+internal enum Life
+{
+    case once;
+    case each;
+    case scope;
+}

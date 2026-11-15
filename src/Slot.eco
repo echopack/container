@@ -1,0 +1,116 @@
+namespace container;
+
+/**
+ * One binding's factory and cache, or a stored value. Erased into a `Cell` so `T` can be a
+ * class or an interface.
+ */
+#[atomic]
+internal class Slot<T>
+{
+    private function<T(Container)>? $make;
+    private T? $cached;
+    private Life? $life;
+
+    public constructor(function<T(Container)> $make, Life $life)
+    {
+        $this->make = $make;
+        $this->cached = null;
+        $this->life = $life;
+    }
+
+    /**
+     * A stored value. Not a factory; `drop` does not release it.
+     */
+    public constructor(put: T $value)
+    {
+        $this->make = null;
+        $this->cached = $value;
+        $this->life = null;
+    }
+
+    /**
+     * The cached value, or `null` when this slot still needs its factory.
+     */
+    internal const function peek() : T?
+    {
+        return $this->cached;
+    }
+
+    /**
+     * The stored value, or run the factory for this slot's lifetime.
+     */
+    public function read(Container $ask, type_id $id) : T
+    {
+        if ($this->make == null) {
+            T $value = guard $this->cached;
+            return $value;
+        }
+
+        Life $life = guard $this->life;
+        if ($life == Life::scope) {
+            $ask->scoping($id);
+            T $hit = guard $ask->recall<T>() else {
+                T $made = $this->run($ask, $id);
+                $ask->remember<T>($made);
+                return $made;
+            };
+            return $hit;
+        }
+
+        if ($life == Life::each) {
+            return $this->run($ask, $id);
+        }
+
+        T $hit = guard $this->cached else {
+            T $made = $this->run($ask, $id);
+            $this->cached = $made;
+            $ask->noteOnce($id);
+            return $made;
+        };
+        return $hit;
+    }
+
+    /**
+     * Drop the `once` cache so the handle can go. A stored value is left in place.
+     */
+    internal function release() : void
+    {
+        if ($this->make == null) {
+            return;
+        }
+
+        $this->cached = null;
+    }
+
+    /**
+     * A thunk that warms this slot, or `null` when there is nothing to construct.
+     */
+    internal function warmer(type_id $id) : function<void(Container)>?
+    {
+        Life $life = guard $this->life else {
+            return null;
+        };
+        if ($life != Life::once) {
+            return null;
+        }
+
+        if ($this->cached != null) {
+            return null;
+        }
+
+        Slot<T> $slot = $this;
+        return function(Container $c) : void {
+            $slot->read($c, $id);
+        };
+    }
+
+    private function run(Container $ask, type_id $id) : T
+    {
+        Life $life = guard $this->life;
+        $ask->entering($id, $life);
+        function<T(Container)> $make = guard $this->make;
+        T $made = $make($ask);
+        $ask->leaving($id);
+        return $made;
+    }
+}

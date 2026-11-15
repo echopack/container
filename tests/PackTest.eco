@@ -1,0 +1,41 @@
+/**
+ * install of a function and of a Pack.
+ */
+
+use container::{Builder, Container, Pack};
+
+class PackNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+class NotePack : Pack
+{
+    public function install(Builder& $c) : void
+    {
+        $c->bind<PackNote>(put: 9);
+    }
+}
+
+test install_function
+{
+    Builder $b = Builder();
+    $b->install(function(Builder& $c) : void {
+        $c->bind<PackNote>(put: 4);
+    });
+    Container $c = $b->seal();
+    assert($c->get<PackNote>()->n == 4, 'fn');
+}
+
+test install_pack
+{
+    Builder $b = Builder();
+    $b->install(NotePack());
+    Container $c = $b->seal();
+    assert($c->get<PackNote>()->n == 9, 'pack');
+}

@@ -1,0 +1,177 @@
+/**
+ * Type-keyed config facts: param, Builder.get of primed values.
+ */
+
+use container::{Builder, Container};
+
+struct ParamHost
+{
+    public const string $value;
+}
+
+struct ParamPort
+{
+    public const int32 $value;
+}
+
+class ParamMailer
+{
+    public ParamHost $host;
+    public ParamPort $port;
+
+    public constructor(ParamHost $host, ParamPort $port)
+    {
+        $this->host = $host;
+        $this->port = $port;
+    }
+}
+
+class ParamSlow
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+test param_round_trip
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('smtp.example.com');
+    $b->param<ParamPort>(587);
+    assert($b->get<ParamHost>()->value == 'smtp.example.com', 'builder host');
+    assert($b->get<ParamPort>()->value == 587, 'builder port');
+
+    Container $c = $b->seal();
+    assert($c->get<ParamHost>()->value == 'smtp.example.com', 'container host');
+    assert($c->get<ParamPort>()->value == 587, 'container port');
+}
+
+test param_readable_at_install
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('smtp.example.com');
+    $b->param<ParamPort>(587);
+    $b->install(function(Builder& $c) : void {
+        ParamHost $host = $c->get<ParamHost>();
+        assert($host->value == 'smtp.example.com', 'install');
+        $c->bind<ParamMailer>(once: function(Container $app) : ParamMailer {
+            return ParamMailer($app->get<ParamHost>(), $app->get<ParamPort>());
+        });
+    });
+    Container $app = $b->seal();
+    ParamMailer $mail = $app->get<ParamMailer>();
+    assert($mail->host->value == 'smtp.example.com', 'host');
+    assert($mail->port->value == 587, 'port');
+}
+
+test param_of_a_string
+{
+    Builder $b = Builder();
+    $b->param('dsn');
+    Container $c = $b->seal();
+    assert($c->get<string>() == 'dsn', 'dsn');
+}
+
+test param_find
+{
+    Builder $b = Builder();
+    ParamPort? $missing = $b->find<ParamPort>();
+    assert($missing == null, 'find miss');
+
+    $b->param<ParamHost>('a');
+    ParamHost? $maybe = $b->find<ParamHost>();
+    ParamHost $found = guard $maybe else {
+        die('should be there');
+    };
+    assert($found->value == 'a', 'find hit');
+
+    ParamSlow? $factory = $b->find<ParamSlow>();
+    assert($factory == null, 'unbound');
+
+    $b->bind<ParamSlow>(once: function() : ParamSlow {
+        return ParamSlow(1);
+    });
+    ParamSlow? $unprimed = $b->find<ParamSlow>();
+    assert($unprimed == null, 'unprimed');
+}
+
+test param_replace
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('a');
+    $b->replace<ParamHost>(put: 'b');
+    Container $c = $b->seal();
+    assert($c->get<ParamHost>()->value == 'b', 'replaced');
+}
+
+test param_overlay
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('a');
+    $b->overlay(function(Builder& $c) : void {
+        $c->param<ParamHost>('b');
+    });
+    Container $c = $b->seal();
+    assert($c->get<ParamHost>()->value == 'b', 'overlay');
+}
+
+test drop_root_keeps_param
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('smtp.example.com');
+    Container $c = $b->seal();
+    assert($c->get<ParamHost>()->value == 'smtp.example.com', 'first');
+    $c->drop();
+    assert($c->get<ParamHost>()->value == 'smtp.example.com', 'kept');
+}
+
+test child_put_shadows_param
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('root');
+    Container $root = $b->seal();
+    Container $req = $root->child();
+    $req->put<ParamHost>('child');
+    assert($req->get<ParamHost>()->value == 'child', 'child');
+    assert($root->get<ParamHost>()->value == 'root', 'root');
+}
+
+#[tests: expects death]
+test duplicate_param_dies
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('a');
+    $b->param<ParamHost>('b');
+}
+
+#[tests: expects death]
+test param_then_bind_dies
+{
+    Builder $b = Builder();
+    $b->param<ParamHost>('a');
+    $b->bind<ParamHost>(once: function() : ParamHost {
+        return ParamHost('b');
+    });
+}
+
+#[tests: expects death]
+test builder_get_missing_dies
+{
+    Builder $b = Builder();
+    ParamHost $h = $b->get<ParamHost>();
+    echo $h->value;
+}
+
+#[tests: expects death]
+test builder_get_unprimed_dies
+{
+    Builder $b = Builder();
+    $b->bind<ParamSlow>(once: function() : ParamSlow {
+        return ParamSlow(1);
+    });
+    ParamSlow $n = $b->get<ParamSlow>();
+    echo $n->n;
+}

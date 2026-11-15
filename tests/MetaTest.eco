@@ -1,0 +1,76 @@
+/**
+ * Typed metadata on an entry.
+ */
+
+use container::{Builder, Entry};
+
+enum Method
+{
+    case get;
+    case post;
+}
+
+struct RouteMeta
+{
+    public Method $method;
+    public string $path;
+}
+
+class GetUserAction
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+struct OtherMeta
+{
+    public int32 $n;
+}
+
+test meta_round_trips_on_entry
+{
+    Builder $b = Builder();
+    Entry<GetUserAction> $entry = $b->bind<GetUserAction>(once: function() : GetUserAction {
+        return GetUserAction(1);
+    });
+    $entry->meta<RouteMeta>($method: .get, $path: '/v1/users/{id}');
+
+    assert($entry->has<RouteMeta>(), 'has');
+    assert(!$entry->has<OtherMeta>(), 'no other');
+
+    RouteMeta $m = $entry->meta<RouteMeta>();
+    assert($m->path == '/v1/users/{id}', 'path');
+    assert($m->method == Method::get, 'method');
+
+    OtherMeta? $missing = $entry->find<OtherMeta>();
+    assert($missing == null, 'find miss');
+}
+
+test meta_replace_same_type
+{
+    Builder $b = Builder();
+    Entry<GetUserAction> $entry = $b->bind<GetUserAction>(once: function() : GetUserAction {
+        return GetUserAction(1);
+    })
+        ->meta<RouteMeta>($method: .get, $path: '/old')
+        ->meta<RouteMeta>($method: .post, $path: '/new');
+
+    RouteMeta $m = $entry->meta<RouteMeta>();
+    assert($m->path == '/new', 'replaced');
+    assert($m->method == Method::post, 'method');
+}
+
+#[tests: expects death]
+test missing_meta_dies
+{
+    Builder $b = Builder();
+    Entry<GetUserAction> $entry = $b->bind<GetUserAction>(once: function() : GetUserAction {
+        return GetUserAction(1);
+    });
+    RouteMeta $m = $entry->meta<RouteMeta>();
+    echo $m->path;
+}

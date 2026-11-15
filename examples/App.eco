@@ -1,0 +1,80 @@
+// a tiny composition root
+//
+//   echoc run -m . examples/App.eco
+
+use container::{Builder, Container};
+
+interface Logger
+{
+    function write(const string& $line) : void;
+}
+
+class FileLogger : Logger
+{
+    public function write(const string& $line) : void
+    {
+        echo $line;
+    }
+}
+
+interface Handler
+{
+    function run() : void;
+}
+
+struct RouteMeta
+{
+    public string $path;
+}
+
+class HelloAction : Handler
+{
+    public Logger $log;
+
+    public constructor(Logger $log)
+    {
+        $this->log = $log;
+    }
+
+    public function run() : void
+    {
+        $this->log->write('hello');
+    }
+}
+
+class ByeAction : Handler
+{
+    public Logger $log;
+
+    public constructor(Logger $log)
+    {
+        $this->log = $log;
+    }
+
+    public function run() : void
+    {
+        $this->log->write('bye');
+    }
+}
+
+Builder $b = Builder();
+$b->bind<Logger>(once: function() : Logger {
+    return FileLogger();
+});
+$b->bind<HelloAction>(once: function(Container $c) : HelloAction {
+    return HelloAction($c->get<Logger>());
+})
+    ->meta<RouteMeta>('/hello')
+    ->view<Handler>();
+$b->bind<ByeAction>(once: function(Container $c) : ByeAction {
+    return ByeAction($c->get<Logger>());
+})
+    ->meta<RouteMeta>('/bye')
+    ->view<Handler>();
+Container $app = $b->seal(warm: true);
+
+foreach ($app->with<RouteMeta>() as &$row) {
+    RouteMeta $route = $row->meta<RouteMeta>();
+    echo $route->path;
+    $row->fetch<Handler>()->run();
+}

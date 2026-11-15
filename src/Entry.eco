@@ -1,0 +1,65 @@
+namespace container;
+
+/**
+ * The row `bind` just created. Attach typed metadata, or expose the service as another type.
+ */
+public struct Entry<T>
+{
+    private Builder $owner;
+    private Cell $cell;
+
+    internal constructor(Builder $owner, Cell $cell)
+    {
+        $this->owner = $owner;
+        $this->cell = $cell;
+    }
+
+    /**
+     * Record `$value` as the metadata of type `M`. Returns this entry so calls can chain.
+     * Constructor args of `M` are gathered at the call:
+     * `meta<RouteMeta>($method: .get, $path: '/v1/users/{id}')`.
+     */
+    public function meta<M>(construct M $value) : Entry<T>
+    {
+        $this->owner->touch();
+        $this->cell->setMeta<M>($value);
+        return $this;
+    }
+
+    /**
+     * The metadata of type `M`. Missing stops the program.
+     */
+    public function meta<M>() : M
+    {
+        return $this->cell->meta<M>();
+    }
+
+    /**
+     * The metadata of type `M`, or `null`.
+     */
+    public function find<M>() : M?
+    {
+        return $this->cell->findMeta<M>();
+    }
+
+    /**
+     * Whether this entry has metadata of type `M`.
+     */
+    public const function has<M>() : bool
+    {
+        return $this->cell->hasMeta<M>();
+    }
+
+    /**
+     * Let `Record::fetch<I>()` return this service as `I`. `T` must widen to `I` at this call.
+     * Does not register `I` as a `get` key; that is `alias`.
+     */
+    public function view<I>() : Entry<T>
+    {
+        $this->owner->touch();
+        $this->cell->setView<I>(function(Container $ask) : I {
+            return $ask->get<T>();
+        });
+        return $this;
+    }
+}

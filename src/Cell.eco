@@ -1,0 +1,185 @@
+namespace container;
+
+/**
+ * One row in the catalog: the service slot, typed metadata, and `view<I>` factories.
+ *
+ * Non-generic so `with<M>` can walk every row without knowing `T`.
+ */
+#[atomic]
+internal class Cell
+{
+    private type_id $id;
+    private erased $slot;
+    private function<void(Container)>? $warmer;
+    private function<void()>? $release;
+    private function<void(Container)>? $prober;
+    private map<type_id, erased> $meta;
+    private map<type_id, erased> $views;
+
+    private constructor(type_id $id)
+    {
+        $this->id = $id;
+        // overwritten by setSlot; constructors must assign every field
+        $this->slot = erased::from(Slot<bool>(put: false));
+        $this->warmer = null;
+        $this->release = null;
+        $this->prober = null;
+        $this->meta = map<type_id, erased>();
+        $this->views = map<type_id, erased>();
+    }
+
+    /**
+     * A row whose slot and warmer always come from the same `Slot<T>`.
+     */
+    internal static function hold<T>(type_id $id, Slot<T> $slot) : Cell
+    {
+        Cell $cell = Cell($id);
+        $cell->setSlot<T>($slot);
+        return $cell;
+    }
+
+    /**
+     * Swap the service slot in place. Meta and views stay on this row.
+     */
+    public function setSlot<T>(Slot<T> $slot) : void
+    {
+        $this->slot = erased::from($slot);
+        $this->warmer = $slot->warmer($this->id);
+        Slot<T> $held = $slot;
+        $this->release = function() : void {
+            $held->release();
+        };
+        $this->prober = function(Container $ask) : void {
+            T $made = $ask->get<T>();
+        };
+    }
+
+    /**
+     * Build this row on `$ask` the way a `get` would.
+     */
+    internal function probe(Container $ask) : void
+    {
+        function<void(Container)> $run = guard $this->prober else {
+            return;
+        };
+        $run($ask);
+    }
+
+    /**
+     * Construct this row if it is a lazy `once`.
+     */
+    public function warm(Container $ask) : void
+    {
+        function<void(Container)> $run = guard $this->warmer else {
+            return;
+        };
+        $run($ask);
+    }
+
+    /**
+     * Drop the `once` cache on this row.
+     */
+    internal function releaseOnce() : void
+    {
+        function<void()> $run = guard $this->release else {
+            return;
+        };
+        $run();
+    }
+
+    /**
+     * Resolve this row as `T`. `T` must be the type the slot was built for.
+     */
+    public function read<T>(Container $ask) : T
+    {
+        unsafe {
+            Slot<T> $slot = assume<Slot<T>>($this->slot);
+            return $slot->read($ask, $this->id);
+        }
+    }
+
+    /**
+     * The cached value of this row as `T`, or `null` when the factory has not run.
+     */
+    internal function peek<T>() : T?
+    {
+        unsafe {
+            Slot<T> $slot = assume<Slot<T>>($this->slot);
+            return $slot->peek();
+        }
+    }
+
+    /**
+     * Store `$value` under `type_id<M>()`. A second write of the same `M` replaces.
+     */
+    public function setMeta<M>(M $value) : void
+    {
+        $this->meta[type_id<M>()] = erased::from(Box<M>($value));
+    }
+
+    /**
+     * The metadata of type `M`. Missing stops the program.
+     */
+    public function meta<M>() : M
+    {
+        type_id $id = type_id<M>();
+        if (!$this->meta->has($id)) {
+            die('container: missing meta');
+        }
+
+        erased $held = $this->meta->get($id);
+        unsafe {
+            Box<M> $box = assume<Box<M>>($held);
+            return $box->value;
+        }
+    }
+
+    /**
+     * The metadata of type `M`, or `null`.
+     */
+    public function findMeta<M>() : M?
+    {
+        if (!$this->hasMeta<M>()) {
+            return null;
+        }
+
+        return $this->meta<M>();
+    }
+
+    /**
+     * Whether this row has metadata of type `M`.
+     */
+    public const function hasMeta<M>() : bool
+    {
+        return $this->meta->has(type_id<M>());
+    }
+
+    /**
+     * A factory that answers `fetch<I>()` for a type this row was not bound as.
+     */
+    public function setView<I>(function<I(Container)> $make) : void
+    {
+        $this->views[type_id<I>()] = erased::from(Forward<I>($make));
+    }
+
+    /**
+     * Resolve this row as `I`: the native binding when `I` is the slot type, otherwise a view.
+     */
+    public function fetch<I>(Container $ask) : I
+    {
+        type_id $id = type_id<I>();
+        if ($this->id == $id) {
+            return $ask->get<I>();
+        }
+
+        if (!$this->views->has($id)) {
+            die('container: missing view');
+        }
+
+        erased $held = $this->views->get($id);
+        unsafe {
+            Forward<I> $fwd = assume<Forward<I>>($held);
+            return $fwd->read($ask);
+        }
+    }
+}

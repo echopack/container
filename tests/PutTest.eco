@@ -1,0 +1,45 @@
+/**
+ * Already-built values.
+ */
+
+use container::{Builder, Container};
+
+class PutNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+test put_returns_the_value
+{
+    Builder $b = Builder();
+    PutNote $note = PutNote(4);
+    $b->bind<PutNote>(put: $note);
+    Container $c = $b->seal();
+    PutNote $got = $c->get<PutNote>();
+    $note->n = 8;
+    assert($got->n == 8, 'same object');
+}
+
+test put_of_a_string
+{
+    Builder $b = Builder();
+    $b->bind<string>(put: 'dsn');
+    Container $c = $b->seal();
+    assert($c->get<string>() == 'dsn', 'dsn');
+}
+
+test child_put_overlays
+{
+    Builder $b = Builder();
+    $b->bind<PutNote>(put: 1);
+    Container $root = $b->seal();
+    Container $req = $root->child();
+    $req->put<PutNote>(9);
+    assert($req->get<PutNote>()->n == 9, 'child');
+    assert($root->get<PutNote>()->n == 1, 'root');
+}

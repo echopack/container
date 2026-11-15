@@ -1,0 +1,39 @@
+/**
+ * Circular factories.
+ */
+
+use container::{Builder, Container};
+
+class CycleA
+{
+    public CycleB $b;
+
+    public constructor(CycleB $b)
+    {
+        $this->b = $b;
+    }
+}
+
+class CycleB
+{
+    public CycleA $a;
+
+    public constructor(CycleA $a)
+    {
+        $this->a = $a;
+    }
+}
+
+#[tests: expects death]
+test cycle_dies
+{
+    Builder $b = Builder();
+    $b->bind<CycleA>(once: function(Container $c) : CycleA {
+        return CycleA($c->get<CycleB>());
+    });
+    $b->bind<CycleB>(once: function(Container $c) : CycleB {
+        return CycleB($c->get<CycleA>());
+    });
+    Container $c = $b->seal();
+    $c->get<CycleA>();
+}

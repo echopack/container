@@ -1,0 +1,49 @@
+namespace container;
+
+/**
+ * One row from `with<M>()`. The service type is no longer in the type system; `fetch<I>`
+ * recovers a view or the native binding, through the asking container so overlays apply.
+ */
+public struct Record
+{
+    private Container $ask;
+    private Cell $cell;
+
+    internal constructor(Container $ask, Cell $cell)
+    {
+        $this->ask = $ask;
+        $this->cell = $cell;
+    }
+
+    /**
+     * The metadata of type `M`. Missing stops the program.
+     */
+    public function meta<M>() : M
+    {
+        return $this->cell->meta<M>();
+    }
+
+    /**
+     * The metadata of type `M`, or `null`.
+     */
+    public function find<M>() : M?
+    {
+        return $this->cell->findMeta<M>();
+    }
+
+    /**
+     * Whether this row has metadata of type `M`.
+     */
+    public const function has<M>() : bool
+    {
+        return $this->cell->hasMeta<M>();
+    }
+
+    /**
+     * The service as `I`. Native when `I` is the bound type, otherwise a `view<I>` factory.
+     */
+    public function fetch<I>() : I
+    {
+        return $this->cell->fetch<I>($this->ask);
+    }
+}

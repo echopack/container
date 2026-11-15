@@ -1,0 +1,83 @@
+/**
+ * alias<I, C> widens C to I.
+ */
+
+use container::{Builder, Container};
+
+interface AliasLogger
+{
+    const function name() : string;
+}
+
+class AliasFile : AliasLogger
+{
+    public string $n;
+
+    public constructor(string $n)
+    {
+        $this->n = $n;
+    }
+
+    public const function name() : string
+    {
+        return $this->n;
+    }
+}
+
+class AliasCalls
+{
+    public int32 $n;
+
+    public constructor()
+    {
+        $this->n = 0;
+    }
+}
+
+test alias_widens
+{
+    Builder $b = Builder();
+    $b->bind<AliasFile>(once: function() : AliasFile {
+        return AliasFile('app');
+    });
+    $b->alias<AliasLogger, AliasFile>();
+    Container $c = $b->seal();
+    AliasLogger $log = $c->get<AliasLogger>();
+    assert($log->name() == 'app', 'name');
+    AliasFile $file = $c->get<AliasFile>();
+    $file->n = 'mut';
+    assert($c->get<AliasLogger>()->name() == 'mut', 'same object');
+}
+
+test alias_each_is_not_cached
+{
+    Builder $b = Builder();
+    AliasCalls $calls = AliasCalls();
+    $b->bind<AliasFile>(each: function() : AliasFile {
+        $calls->n = $calls->n + 1;
+        return AliasFile('x');
+    });
+    $b->alias<AliasLogger, AliasFile>();
+    Container $c = $b->seal();
+    $c->get<AliasLogger>();
+    $c->get<AliasLogger>();
+    assert($calls->n == 2, 'alias is a forward');
+    $c->get<AliasFile>();
+    assert($calls->n == 3, 'concrete also each');
+}
+
+test alias_forwards_child_put
+{
+    Builder $b = Builder();
+    $b->bind<AliasFile>(once: function() : AliasFile {
+        return AliasFile('root');
+    });
+    $b->alias<AliasLogger, AliasFile>();
+    Container $root = $b->seal();
+
+    Container $req = $root->child();
+    $req->put<AliasFile>('child');
+
+    assert($req->get<AliasLogger>()->name() == 'child', 'child');
+    assert($root->get<AliasLogger>()->name() == 'root', 'root');
+}

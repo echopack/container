@@ -1,0 +1,81 @@
+/**
+ * Singleton bindings.
+ */
+
+use container::{Builder, Container};
+
+class OnceNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+class OnceCalls
+{
+    public int32 $n;
+
+    public constructor()
+    {
+        $this->n = 0;
+    }
+}
+
+test once_returns_the_same_instance
+{
+    Builder $b = Builder();
+    $b->bind<OnceNote>(once: function() : OnceNote {
+        return OnceNote(7);
+    });
+    Container $c = $b->seal();
+
+    OnceNote $a = $c->get<OnceNote>();
+    OnceNote $bNote = $c->get<OnceNote>();
+    $a->n = 99;
+    assert($bNote->n == 99, 'same object');
+}
+
+test once_factory_runs_once
+{
+    Builder $b = Builder();
+    OnceCalls $calls = OnceCalls();
+    $b->bind<OnceNote>(once: function() : OnceNote {
+        $calls->n = $calls->n + 1;
+        return OnceNote($calls->n);
+    });
+    Container $c = $b->seal();
+
+    OnceNote $a = $c->get<OnceNote>();
+    OnceNote $bNote = $c->get<OnceNote>();
+    assert($a->n == 1, 'first');
+    assert($bNote->n == 1, 'cached');
+    assert($calls->n == 1, 'ran once');
+}
+
+test once_zero_arg_factory
+{
+    Builder $b = Builder();
+    $b->bind<OnceNote>(once: function() : OnceNote {
+        return OnceNote(3);
+    });
+    Container $c = $b->seal();
+    assert($c->get<OnceNote>()->n == 3, 'n');
+}
+
+test once_factory_receives_container
+{
+    Builder $b = Builder();
+    $b->bind<OnceNote>(once: function() : OnceNote {
+        return OnceNote(1);
+    });
+    $b->bind<OnceCalls>(once: function(Container $c) : OnceCalls {
+        OnceCalls $calls = OnceCalls();
+        $calls->n = $c->get<OnceNote>()->n;
+        return $calls;
+    });
+    Container $c = $b->seal();
+    assert($c->get<OnceCalls>()->n == 1, 'looked up');
+}

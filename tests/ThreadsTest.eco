@@ -1,0 +1,71 @@
+/**
+ * A sealed, warmed container serves per-request children on many threads at once.
+ */
+
+use container::{Builder, Container};
+use std::thread;
+
+#[atomic]
+class ThreadsShared
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+class ThreadsPerAsk
+{
+    public int64 $id;
+
+    public constructor(int64 $id)
+    {
+        $this->id = $id;
+    }
+}
+
+#[atomic]
+class ThreadsTally
+{
+    public atomic<int64> $sum;
+
+    public constructor()
+    {
+        $this->sum = atomic<int64>(0);
+    }
+}
+
+test children_on_many_threads
+{
+    Builder $b = Builder();
+    $b->bind<ThreadsShared>(once: function() : ThreadsShared {
+        return ThreadsShared(7);
+    });
+    $b->bind<ThreadsPerAsk>(scope: function(Container $c) : ThreadsPerAsk {
+        return ThreadsPerAsk($c->get<int64>());
+    });
+    Container $root = $b->seal(warm: true);
+    ThreadsTally $tally = ThreadsTally();
+
+    array<thread::handle> $workers = array<thread::handle>();
+    for ($t = 0; $t < 8; $t++) {
+        thread::handle $h = guard thread::spawn(function[$root, $tally]() : void {
+            for ($i = 0; $i < 2000; $i++) {
+                Container $ask = $root->child();
+                $ask->put<int64>(1);
+                ThreadsShared $s = $ask->get<ThreadsShared>();
+                ThreadsPerAsk $p = $ask->get<ThreadsPerAsk>();
+                $tally->sum->add($p->id + ($s->n as int64) - 7);
+                $ask->drop();
+            }
+        });
+        $workers[] = mv $h;
+    }
+    foreach ($workers as &$h) {
+        $h->join();
+    }
+
+    assert($tally->sum->load() == 16000, 'every ask resolved its own scope');
+}

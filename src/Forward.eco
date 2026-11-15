@@ -1,0 +1,23 @@
+namespace container;
+
+/**
+ * A typed factory stored on a cell for `view<I>`. Not a service slot: it never caches.
+ */
+#[atomic]
+internal class Forward<I>
+{
+    public const function<I(Container)> $make;
+
+    public constructor(function<I(Container)> $make)
+    {
+        $this->make = $make;
+    }
+
+    /**
+     * Run the factory against `$ask`.
+     */
+    public const function read(Container $ask) : I
+    {
+        return $this->make($ask);
+    }
+}

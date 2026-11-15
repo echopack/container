@@ -1,0 +1,105 @@
+/**
+ * Constructor forwarding on param, bind(put:), replace(put:), put, and meta.
+ */
+
+use container::{Builder, Container, Entry};
+
+struct ConstructHost
+{
+    public const string $value;
+}
+
+class ConstructNote
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+enum ConstructMethod
+{
+    case get;
+    case post;
+}
+
+struct ConstructRoute
+{
+    public ConstructMethod $method;
+    public string $path;
+}
+
+test construct_param_from_args
+{
+    Builder $b = Builder();
+    $b->param<ConstructHost>('smtp.example.com');
+    assert($b->get<ConstructHost>()->value == 'smtp.example.com', 'forwarded');
+}
+
+test construct_param_ready_value_infers
+{
+    Builder $b = Builder();
+    $b->param(ConstructHost('a'));
+    assert($b->get<ConstructHost>()->value == 'a', 'ready');
+}
+
+test construct_param_string_infers
+{
+    Builder $b = Builder();
+    $b->param('dsn');
+    Container $c = $b->seal();
+    assert($c->get<string>() == 'dsn', 'string');
+}
+
+test construct_bind_put_from_args
+{
+    Builder $b = Builder();
+    $b->bind<ConstructNote>(put: 9);
+    Container $c = $b->seal();
+    assert($c->get<ConstructNote>()->n == 9, 'forwarded');
+}
+
+test construct_bind_put_ready_value
+{
+    Builder $b = Builder();
+    ConstructNote $note = ConstructNote(4);
+    $b->bind<ConstructNote>(put: $note);
+    Container $c = $b->seal();
+    $note->n = 8;
+    assert($c->get<ConstructNote>()->n == 8, 'same object');
+}
+
+test construct_replace_put_from_args
+{
+    Builder $b = Builder();
+    $b->param<ConstructHost>('a');
+    $b->replace<ConstructHost>(put: 'b');
+    Container $c = $b->seal();
+    assert($c->get<ConstructHost>()->value == 'b', 'replaced');
+}
+
+test construct_child_put_from_args
+{
+    Builder $b = Builder();
+    $b->bind<ConstructNote>(put: 1);
+    Container $root = $b->seal();
+    Container $req = $root->child();
+    $req->put<ConstructNote>(9);
+    assert($req->get<ConstructNote>()->n == 9, 'child');
+    assert($root->get<ConstructNote>()->n == 1, 'root');
+}
+
+test construct_meta_from_args_and_getter
+{
+    Builder $b = Builder();
+    Entry<ConstructNote> $entry = $b->bind<ConstructNote>(once: function() : ConstructNote {
+        return ConstructNote(1);
+    })
+        ->meta<ConstructRoute>($method: .get, $path: '/x');
+
+    ConstructRoute $m = $entry->meta<ConstructRoute>();
+    assert($m->path == '/x', 'path');
+    assert($m->method == ConstructMethod::get, 'method');
+}

@@ -1,0 +1,16 @@
+/*
+ * container: a type-keyed DI container for Echo.
+ *
+ * Bind factories at the composition root. Resolve by type at the edge.
+ */
+
+#[module: "container"]
+#[version: "0.1.0"]
+#[epm::license: "MIT"]
+#[epm::description: "A type-keyed DI container for Echo"]
+
+#[sources: "src/*.eco"]
+
+#[target: test] {
+    #[sources: "tests/*.eco"]
+}

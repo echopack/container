@@ -1,0 +1,21 @@
+namespace container;
+
+/**
+ * The line a resolve that cannot go on stops the program with: the chain
+ * of bindings under construction, then why.
+ */
+internal struct Trace
+{
+    /**
+     * `container: A → B → C: why`, or `container: why` when nothing was
+     * under construction.
+     */
+    internal static function describe(const array<string>& $chain, const string& $why) : string
+    {
+        if ($chain->empty()) {
+            return "container: {$why}";
+        }
+        string $path = str::join($chain, ' → ');
+        return "container: {$path}: {$why}";
+    }
+}

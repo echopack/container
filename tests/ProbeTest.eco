@@ -1,0 +1,124 @@
+/**
+ * probe builds every binding; failed resolves name their chain.
+ */
+
+use container::{Builder, Container};
+
+class ProbeCalls
+{
+    public int32 $n = 0;
+    public array<string> $seen = [];
+
+    public constructor()
+    {
+    }
+}
+
+class ProbeRepo
+{
+    public constructor()
+    {
+    }
+}
+
+class ProbeService
+{
+    public ProbeRepo $repo;
+
+    public constructor(ProbeRepo $repo)
+    {
+        $this->repo = $repo;
+    }
+}
+
+class ProbeMailer
+{
+    public ProbeRepo $repo;
+
+    public constructor(ProbeRepo $repo)
+    {
+        $this->repo = $repo;
+    }
+}
+
+function probeBuilder(ProbeCalls $calls) : Builder
+{
+    Builder $b = Builder();
+    $b->name<ProbeRepo>('ProbeRepo');
+    $b->name<ProbeService>('ProbeService');
+    $b->name<ProbeMailer>('ProbeMailer');
+    $b->bind<ProbeRepo>(scope: function(Container $c) : ProbeRepo {
+        $calls->n = $calls->n + 1;
+        $calls->seen = $c->chain();
+        return ProbeRepo();
+    });
+    $b->bind<ProbeService>(each: function(Container $c) : ProbeService {
+        $calls->n = $calls->n + 1;
+        return ProbeService($c->get<ProbeRepo>());
+    });
+    return $b;
+}
+
+test probe_builds_every_binding_once_on_the_ask
+{
+    ProbeCalls $calls = ProbeCalls();
+    Container $root = probeBuilder($calls)->seal();
+    Container $ask = $root->child();
+    $ask->probe();
+    // the repo once (cached on the ask), the service once
+    assert($calls->n == 2, 'built');
+    $ask->drop();
+}
+
+test the_chain_names_what_is_under_construction
+{
+    ProbeCalls $calls = ProbeCalls();
+    Container $root = probeBuilder($calls)->seal();
+    Container $ask = $root->child();
+    ProbeService $s = $ask->get<ProbeService>();
+    assert($calls->seen->count() == 2, 'two deep');
+    assert($calls->seen[0] == 'ProbeService', 'outer first');
+    assert($calls->seen[1] == 'ProbeRepo', 'then inner');
+}
+
+test a_trace_reads_as_a_chain
+{
+    array<string> $chain = ['CreatePost', 'PostService'];
+    assert(container::Trace::describe($chain, 'nothing binds PostLimit') == 'container: CreatePost → PostService: nothing binds PostLimit');
+    array<string> $none = [];
+    assert(container::Trace::describe($none, 'nothing binds PostLimit') == 'container: nothing binds PostLimit');
+}
+
+#[tests: expects death]
+test probe_dies_on_a_missing_binding
+{
+    Builder $b = Builder();
+    $b->bind<ProbeService>(scope: function(Container $c) : ProbeService {
+        return ProbeService($c->get<ProbeRepo>());
+    });
+    Container $ask = $b->seal()->child();
+    $ask->probe();
+}
+
+#[tests: expects death]
+test a_once_binding_taking_a_scope_one_dies
+{
+    ProbeCalls $calls = ProbeCalls();
+    Builder $b = probeBuilder($calls);
+    $b->bind<ProbeMailer>(once: function(Container $c) : ProbeMailer {
+        return ProbeMailer($c->get<ProbeRepo>());
+    });
+    Container $ask = $b->seal()->child();
+    $ask->probe();
+}
+
+#[tests: expects death]
+test warming_a_once_binding_that_takes_a_scope_one_dies
+{
+    ProbeCalls $calls = ProbeCalls();
+    Builder $b = probeBuilder($calls);
+    $b->bind<ProbeMailer>(once: function(Container $c) : ProbeMailer {
+        return ProbeMailer($c->get<ProbeRepo>());
+    });
+    $b->seal(warm: true);
+}

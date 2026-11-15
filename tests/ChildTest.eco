@@ -1,0 +1,72 @@
+/**
+ * Child containers overlay put values and walk the catalog.
+ */
+
+use container::{Builder, Container};
+
+class ChildLogger
+{
+    public string $name;
+
+    public constructor(string $name)
+    {
+        $this->name = $name;
+    }
+}
+
+class ChildRequest
+{
+    public string $path;
+
+    public constructor(string $path)
+    {
+        $this->path = $path;
+    }
+}
+
+class ChildHandler
+{
+    public ChildLogger $log;
+    public ChildRequest $req;
+
+    public constructor(ChildLogger $log, ChildRequest $req)
+    {
+        $this->log = $log;
+        $this->req = $req;
+    }
+}
+
+test child_put_and_parent_scope
+{
+    Builder $b = Builder();
+    $b->bind<ChildLogger>(once: function() : ChildLogger {
+        return ChildLogger('app');
+    });
+    $b->bind<ChildHandler>(scope: function(Container $c) : ChildHandler {
+        return ChildHandler($c->get<ChildLogger>(), $c->get<ChildRequest>());
+    });
+    Container $root = $b->seal();
+
+    Container $req = $root->child();
+    $req->put<ChildRequest>('/home');
+
+    ChildHandler $h = $req->get<ChildHandler>();
+    assert($h->log->name == 'app', 'logger');
+    assert($h->req->path == '/home', 'path');
+}
+
+test child_has_walks_parent
+{
+    Builder $b = Builder();
+    $b->bind<ChildLogger>(once: function() : ChildLogger {
+        return ChildLogger('app');
+    });
+    Container $root = $b->seal();
+    Container $req = $root->child();
+    $req->put<ChildRequest>('/home');
+
+    assert($req->has<ChildLogger>(), 'parent logger');
+    assert($req->has<ChildRequest>(), 'own request');
+    assert($root->has<ChildLogger>(), 'root logger');
+    assert(!$root->has<ChildRequest>(), 'root has no request');
+}

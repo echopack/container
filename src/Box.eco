@@ -1,0 +1,15 @@
+namespace container;
+
+/**
+ * An owning box so a struct can sit in `erased`.
+ */
+#[atomic]
+internal class Box<T>
+{
+    public const T $value;
+
+    public constructor(T $value)
+    {
+        $this->value = $value;
+    }
+}

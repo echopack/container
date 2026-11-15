@@ -1,0 +1,13 @@
+namespace container;
+
+/**
+ * A bundle of bindings. Libraries export a function; a class implements this when the pack
+ * has state of its own.
+ */
+public interface Pack
+{
+    /**
+     * Register this pack's bindings on `$c`.
+     */
+    function install(Builder& $c) : void;
+}

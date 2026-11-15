@@ -1,0 +1,311 @@
+namespace container;
+
+/**
+ * The composition root. Bind factories, hang metadata, install packs, then `seal()`.
+ */
+#[atomic]
+public class Builder
+{
+    private Core $core;
+
+    /**
+     * An empty composition root.
+     */
+    public constructor()
+    {
+        $this->core = Core();
+    }
+
+    /**
+     * Bind `T` as a singleton. The factory takes no container.
+     */
+    public function bind<T>(once: function<T()> $make) : Entry<T>
+    {
+        return $this->bind<T>(once: function(Container $c) : T {
+            return $make();
+        });
+    }
+
+    /**
+     * Bind `T` as a singleton. The factory receives the container being resolved against.
+     */
+    public function bind<T>(once: function<T(Container)> $make) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>($make, Life::once), unique: true);
+    }
+
+    /**
+     * Bind `T` as a new instance on every `get`. The factory takes no container.
+     */
+    public function bind<T>(each: function<T()> $make) : Entry<T>
+    {
+        return $this->bind<T>(each: function(Container $c) : T {
+            return $make();
+        });
+    }
+
+    /**
+     * Bind `T` as a new instance on every `get`. The factory receives the resolving container.
+     */
+    public function bind<T>(each: function<T(Container)> $make) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>($make, Life::each), unique: true);
+    }
+
+    /**
+     * Bind `T` as one instance per asking container. The factory takes no container.
+     */
+    public function bind<T>(scope: function<T()> $make) : Entry<T>
+    {
+        return $this->bind<T>(scope: function(Container $c) : T {
+            return $make();
+        });
+    }
+
+    /**
+     * Bind `T` as one instance per asking container. The factory receives that container.
+     */
+    public function bind<T>(scope: function<T(Container)> $make) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>($make, Life::scope), unique: true);
+    }
+
+    /**
+     * Bind an already-built value. `get<T>` returns `$value`. Constructor args of `T` are
+     * gathered at the call: `bind<Hostname>(put: 'smtp.example.com')`.
+     */
+    public function bind<T>(put: construct T $value) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>(put: $value), unique: true);
+    }
+
+    /**
+     * Bind an already-built fact. Same catalog as `bind(put:)`; the name is for config values
+     * whose type is the key (`Hostname`, `Port`, a pack's `Options`). Constructor args of `T`
+     * are gathered at the call: `param<Hostname>('smtp.example.com')`.
+     */
+    public function param<T>(construct T $value) : Entry<T>
+    {
+        return $this->bind<T>(put: $value);
+    }
+
+    /**
+     * Replace the binding for `T` with a singleton factory that takes no container.
+     */
+    public function replace<T>(once: function<T()> $make) : Entry<T>
+    {
+        return $this->replace<T>(once: function(Container $c) : T {
+            return $make();
+        });
+    }
+
+    /**
+     * Replace the binding for `T` with a singleton factory.
+     */
+    public function replace<T>(once: function<T(Container)> $make) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>($make, Life::once), unique: false);
+    }
+
+    /**
+     * Replace the binding for `T` with a per-get factory that takes no container.
+     */
+    public function replace<T>(each: function<T()> $make) : Entry<T>
+    {
+        return $this->replace<T>(each: function(Container $c) : T {
+            return $make();
+        });
+    }
+
+    /**
+     * Replace the binding for `T` with a per-get factory.
+     */
+    public function replace<T>(each: function<T(Container)> $make) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>($make, Life::each), unique: false);
+    }
+
+    /**
+     * Replace the binding for `T` with a per-ask factory that takes no container.
+     */
+    public function replace<T>(scope: function<T()> $make) : Entry<T>
+    {
+        return $this->replace<T>(scope: function(Container $c) : T {
+            return $make();
+        });
+    }
+
+    /**
+     * Replace the binding for `T` with a per-ask factory.
+     */
+    public function replace<T>(scope: function<T(Container)> $make) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>($make, Life::scope), unique: false);
+    }
+
+    /**
+     * Replace the binding for `T` with an already-built value. Constructor args of `T` are
+     * gathered at the call: `replace<Hostname>(put: 'smtp.example.com')`.
+     */
+    public function replace<T>(put: construct T $value) : Entry<T>
+    {
+        return $this->place<T>(Slot<T>(put: $value), unique: false);
+    }
+
+    /**
+     * `get<I>()` forwards to `get<C>()` on the container being resolved against.
+     * `C` must widen to `I` at this call.
+     */
+    public function alias<I, C>() : Entry<I>
+    {
+        return $this->bind<I>(each: function(Container $c) : I {
+            return $c->get<C>();
+        });
+    }
+
+    /**
+     * Name `T` for the line a failed resolve stops with, which otherwise
+     * says "an unnamed type".
+     */
+    public function name<T>(const string& $name) : void
+    {
+        $this->core->name(type_id<T>(), $name);
+    }
+
+    /**
+     * Name the type `$id` for the line a failed resolve stops with.
+     */
+    public function name(type_id $id, const string& $name) : void
+    {
+        $this->core->name($id, $name);
+    }
+
+    /**
+     * Run a pack function against this builder. Duplicate binds die.
+     */
+    public function install(function<void(Builder&)> $pack) : void
+    {
+        $pack($this);
+    }
+
+    /**
+     * Run a `Pack` against this builder. Duplicate binds die.
+     */
+    public function install(Pack $pack) : void
+    {
+        $pack->install($this);
+    }
+
+    /**
+     * Run a pack function in overlay mode: `bind` of an existing type replaces.
+     */
+    public function overlay(function<void(Builder&)> $pack) : void
+    {
+        $this->touch();
+        $this->core->beginOverlay();
+        $pack($this);
+        $this->core->endOverlay();
+    }
+
+    /**
+     * Run a `Pack` in overlay mode: `bind` of an existing type replaces.
+     */
+    public function overlay(Pack $pack) : void
+    {
+        $this->overlay(function(Builder& $b) : void {
+            $pack->install($b);
+        });
+    }
+
+    /**
+     * Whether `T` is bound on this builder.
+     */
+    public const function has<T>() : bool
+    {
+        return $this->core->has(type_id<T>());
+    }
+
+    /**
+     * The already-built value of type `T`. Missing, or a factory that has not run, stops the
+     * program. Does not construct.
+     */
+    public function get<T>() : T
+    {
+        type_id $id = type_id<T>();
+        if (!$this->core->has($id)) {
+            die('container: missing binding');
+        }
+
+        T $hit = guard $this->core->get($id)->peek<T>() else {
+            die('container: missing value');
+        };
+        return $hit;
+    }
+
+    /**
+     * The already-built value of type `T`, or `null` when nothing is bound or the factory has
+     * not run.
+     */
+    public function find<T>() : T?
+    {
+        type_id $id = type_id<T>();
+        if (!$this->core->has($id)) {
+            return null;
+        }
+
+        return $this->core->get($id)->peek<T>();
+    }
+
+    /**
+     * Freeze this builder and return the sealed graph.
+     */
+    public function seal() : Container
+    {
+        $this->touch();
+        $this->core->seal();
+        return Container($this->core);
+    }
+
+    /**
+     * Freeze this builder and return the sealed graph. `warm: true` also constructs every `once`.
+     */
+    public function seal(warm: bool $warm) : Container
+    {
+        Container $c = $this->seal();
+        if ($warm) {
+            $c->warm();
+        }
+        return $c;
+    }
+
+    /**
+     * Die if this builder is sealed. Called from `Entry` before it mutates a row.
+     */
+    internal function touch() : void
+    {
+        $this->core->touch();
+    }
+
+    private function place<T>(Slot<T> $slot, unique: bool $unique) : Entry<T>
+    {
+        $this->touch();
+        type_id $id = type_id<T>();
+        if ($this->core->has($id)) {
+            if ($unique && !$this->core->overlaying()) {
+                die('container: duplicate');
+            }
+
+            Cell $cell = $this->core->get($id);
+            $cell->setSlot<T>($slot);
+            return Entry<T>($this, $cell);
+        }
+
+        if (!$unique) {
+            die('container: replace');
+        }
+
+        Cell $cell = Cell::hold<T>($id, $slot);
+        $this->core->set($id, $cell);
+        return Entry<T>($this, $cell);
+    }
+}

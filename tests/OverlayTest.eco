@@ -1,0 +1,91 @@
+/**
+ * overlay packs rebind existing types.
+ */
+
+use container::{Builder, Container, Pack};
+
+class OverlayLog
+{
+    public string $name;
+
+    public constructor(string $name)
+    {
+        $this->name = $name;
+    }
+}
+
+class OverlayClock
+{
+    public int32 $n;
+
+    public constructor(int32 $n)
+    {
+        $this->n = $n;
+    }
+}
+
+class DefaultLogPack : Pack
+{
+    public function install(Builder& $c) : void
+    {
+        $c->bind<OverlayLog>(put: 'default');
+    }
+}
+
+class VerboseLogPack : Pack
+{
+    public function install(Builder& $c) : void
+    {
+        $c->bind<OverlayLog>(put: 'verbose');
+        $c->bind<OverlayClock>(put: 7);
+    }
+}
+
+test overlay_rebinds_and_adds
+{
+    Builder $b = Builder();
+    $b->install(DefaultLogPack());
+    $b->overlay(VerboseLogPack());
+    Container $c = $b->seal();
+    assert($c->get<OverlayLog>()->name == 'verbose', 'rebound');
+    assert($c->get<OverlayClock>()->n == 7, 'added');
+}
+
+test overlay_function
+{
+    Builder $b = Builder();
+    $b->bind<OverlayLog>(put: 'a');
+    $b->overlay(function(Builder& $c) : void {
+        $c->bind<OverlayLog>(put: 'b');
+    });
+    Container $c = $b->seal();
+    assert($c->get<OverlayLog>()->name == 'b', 'fn');
+}
+
+test replace_after_install
+{
+    Builder $b = Builder();
+    $b->install(DefaultLogPack());
+    $b->replace<OverlayLog>(put: 'test');
+    Container $c = $b->seal();
+    assert($c->get<OverlayLog>()->name == 'test', 'app override');
+}
+
+test overlay_bind_missing_still_binds
+{
+    Builder $b = Builder();
+    $b->overlay(function(Builder& $c) : void {
+        $c->bind<OverlayLog>(put: 'fresh');
+    });
+    Container $c = $b->seal();
+    assert($c->get<OverlayLog>()->name == 'fresh', 'new');
+}
+
+#[tests: expects death]
+test overlay_replace_missing_dies
+{
+    Builder $b = Builder();
+    $b->overlay(function(Builder& $c) : void {
+        $c->replace<OverlayLog>(put: 'nope');
+    });
+}

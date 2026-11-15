@@ -1,0 +1,132 @@
+namespace container;
+
+/**
+ * The frozen cell map shared by a `Builder` and every `Container` sealed from it.
+ */
+#[atomic]
+internal class Core
+{
+    private ordered_map<type_id, Cell> $cells;
+    private bool $sealed;
+    private int32 $overlaying;
+    private array<Cell> $onceBorn;
+    private map<type_id, string> $names;
+
+    public constructor()
+    {
+        $this->cells = ordered_map<type_id, Cell>();
+        $this->sealed = false;
+        $this->overlaying = 0;
+        $this->onceBorn = array<Cell>();
+        $this->names = map<type_id, string>();
+    }
+
+    /**
+     * Die if this core is sealed.
+     */
+    internal function touch() : void
+    {
+        if ($this->sealed) {
+            die('container: sealed');
+        }
+    }
+
+    /**
+     * Freeze further writes on this core.
+     */
+    internal function seal() : void
+    {
+        $this->sealed = true;
+    }
+
+    /**
+     * Enter overlay-install mode. Nested calls stack.
+     */
+    internal function beginOverlay() : void
+    {
+        $this->overlaying = $this->overlaying + 1;
+    }
+
+    /**
+     * Leave overlay-install mode.
+     */
+    internal function endOverlay() : void
+    {
+        $this->overlaying = $this->overlaying - 1;
+    }
+
+    /**
+     * Whether `bind` should replace an existing cell.
+     */
+    internal const function overlaying() : bool
+    {
+        return $this->overlaying > 0;
+    }
+
+    /**
+     * Whether `$id` is a cell on this core.
+     */
+    internal const function has(type_id $id) : bool
+    {
+        return $this->cells->has($id);
+    }
+
+    /**
+     * The cell for `$id`. Missing is a programming error in the caller.
+     */
+    internal function get(type_id $id) : Cell
+    {
+        return $this->cells->get($id);
+    }
+
+    /**
+     * Store `$cell` under `$id`.
+     */
+    internal function set(type_id $id, Cell $cell) : void
+    {
+        $this->cells[$id] = $cell;
+    }
+
+    /**
+     * Every cell in bind order.
+     */
+    internal function values() : array<Cell>
+    {
+        return $this->cells->values();
+    }
+
+    /**
+     * Remember `$cell` as a `once` construction, for reverse `drop`.
+     */
+    internal function name(type_id $id, const string& $name) : void
+    {
+        $this->names[$id] = $name;
+    }
+
+    internal const function nameOf(type_id $id) : string
+    {
+        if (!$this->names->has($id)) {
+            return 'an unnamed type';
+        }
+
+        return $this->names->get($id);
+    }
+
+    internal function noteOnce(Cell $cell) : void
+    {
+        $this->onceBorn[] = $cell;
+    }
+
+    /**
+     * Release every `once` cache in reverse construction order.
+     */
+    internal function dropOnce() : void
+    {
+        array<Cell> $born = $this->onceBorn;
+        int32 $n = $born->count();
+        for ($i = $n - 1; $i >= 0; $i--) {
+            $born[$i]->releaseOnce();
+        }
+        $this->onceBorn->clear();
+    }
+}

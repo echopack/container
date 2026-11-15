@@ -1,0 +1,50 @@
+/**
+ * Interface-keyed services.
+ */
+
+use container::{Builder, Container};
+
+interface TestLogger
+{
+    const function name() : string;
+}
+
+class FileLogger : TestLogger
+{
+    public string $n;
+
+    public constructor(string $n)
+    {
+        $this->n = $n;
+    }
+
+    public const function name() : string
+    {
+        return $this->n;
+    }
+}
+
+test once_of_an_interface_is_the_same_object
+{
+    Builder $b = Builder();
+    $b->bind<TestLogger>(once: function() : TestLogger {
+        return FileLogger('app');
+    });
+    Container $c = $b->seal();
+
+    TestLogger $a = $c->get<TestLogger>();
+    TestLogger $bLog = $c->get<TestLogger>();
+    assert($a->name() == 'app', 'first');
+    assert($bLog->name() == 'app', 'second');
+}
+
+test has_is_the_bound_type
+{
+    Builder $b = Builder();
+    $b->bind<TestLogger>(once: function() : TestLogger {
+        return FileLogger('app');
+    });
+    Container $c = $b->seal();
+    assert($c->has<TestLogger>(), 'logger');
+    assert(!$c->has<FileLogger>(), 'concrete');
+}
